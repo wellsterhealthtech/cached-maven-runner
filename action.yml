@@ -1,0 +1,51 @@
+name: cached-maven-runner
+description: Run Maven with cache and background process
+
+inputs:
+  project_dir:
+    required: true
+  features_dir:
+    required: true
+  system_properties:
+    required: false
+    default: ''
+  background_cmd:
+    required: false
+    default: ''
+
+runs:
+  using: "composite"
+  steps:
+    - name: Build Maven cache
+      uses: actions/cache@v2
+      with:
+        path: ~/.m2
+        key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
+        restore-keys: ${{ runner.os }}-m2
+    - name: Build command line
+      shell: bash
+      id: cmdline
+      run: |
+        readarray -t PROPERTIES <<< "${{ inputs.system_properties }}"
+        CMDLINE=
+        
+        for PROPERTY in "${PROPERTIES[@]}"
+        do
+          PROPERTY="${PROPERTY#"${PROPERTY%%[![:space:]]*}"}"
+          PROPERTY="${PROPERTY%"${PROPERTY##*[![:space:]]}"}"   
+
+          if [ ! -z "$PROPERTY" ]
+          then
+            CMDLINE="$CMDLINE -D$PROPERTY"
+          fi
+        done
+
+        CMDLINE="${CMDLINE#"${CMDLINE%%[![:space:]]*}"}"
+
+        echo ::set-output name=CMDLINE::$CMDLINE
+    - name: Run Maven
+      uses: joltcoke/background-server-action@test-build
+      with:
+        command: mvn --batch-mode --update-snapshots -Dcucumber.options=${{ inputs.features_dir }} ${{ steps.cmdline.outputs.cmdline }} verify
+        cwd: ${{ inputs.project_dir }}
+        start:  ${{ inputs.background_cmd }}
